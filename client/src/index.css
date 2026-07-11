@@ -1,0 +1,45 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-porcelain text-ink font-body antialiased;
+}
+
+.eyebrow {
+  @apply font-display text-[10px] font-semibold uppercase tracking-[0.18em] text-muted;
+}
+
+.panel {
+  @apply rounded-xl border border-line bg-white;
+}
+
+.chip {
+  @apply inline-flex items-center gap-1 rounded-md px-2 py-0.5 font-mono text-[11px] font-medium;
+}
+
+.btn {
+  @apply inline-flex items-center gap-2 rounded-lg px-3.5 py-2 font-display text-[12px] font-semibold uppercase tracking-wider transition-colors;
+}
+.btn-dark { @apply bg-ink text-white hover:bg-black; }
+.btn-ghost { @apply border border-line bg-white text-ink hover:border-ink; }
+
+/* Signature: SLA rail with hatched weekend (SLA paused) segments */
+.rail { @apply relative h-2 w-full overflow-hidden rounded-full bg-[#E8ECEA]; }
+.rail-weekend {
+  position: absolute; top: 0; bottom: 0;
+  background: repeating-linear-gradient(135deg, #cfd6d2 0 3px, transparent 3px 6px);
+}
+.rail-fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 9999px; }
+.rail-now {
+  position: absolute; top: -3px; bottom: -3px; width: 2px; background: #14181A;
+}
+
+input, select { @apply outline-none; }
+input:focus-visible, select:focus-visible, button:focus-visible {
+  outline: 2px solid #14181A; outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
