@@ -13,6 +13,8 @@ function getTransporter() {
       port: config.SMTP.port,
       secure: config.SMTP.secure,
       auth: { user: config.SMTP.user, pass: config.SMTP.pass },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
     });
   }
   return transporter;
@@ -97,6 +99,21 @@ function missingTable(rows) {
 }
 
 async function send(recipients, subject, html) {
+  // Brevo HTTP API (port 443) - use when SMTP ports are blocked (e.g. Railway)
+  if (process.env.BREVO_API_KEY) {
+    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: { 'api-key': process.env.BREVO_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sender: { name: 'ShipClock', email: config.SMTP.from },
+        to: recipients.map((e) => ({ email: e })),
+        subject,
+        htmlContent: html,
+      }),
+    });
+    if (!res.ok) throw new Error(`Brevo ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    return;
+  }
   const t = getTransporter();
   await t.sendMail({
     from: `ShipClock <${config.SMTP.from}>`,
