@@ -183,13 +183,16 @@ export function SettingsView({ settings, onSaved, user }) {
     graceHours: settings.graceHours,
     lookbackDays: settings.lookbackDays,
     trackMirakl: settings.trackMirakl,
+    whatsappEnabled: settings.whatsappEnabled,
+    whatsappRecipients: (settings.whatsappRecipients || []).join(', '),
   });
   const [msg, setMsg] = useState('');
+  const [waGroups, setWaGroups] = useState(null);
 
   const save = async () => {
     setMsg('');
     try {
-      await api('/settings', { method: 'PUT', body: { ...form, recipients: form.recipients } });
+      await api('/settings', { method: 'PUT', body: { ...form, recipients: form.recipients, whatsappRecipients: form.whatsappRecipients } });
       setMsg('Saved.');
       onSaved && onSaved();
     } catch (e) { setMsg(e.message); }
@@ -201,6 +204,24 @@ export function SettingsView({ settings, onSaved, user }) {
       const r = await api('/test-email', { method: 'POST' });
       setMsg(`Test sent to ${r.recipients.join(', ')}`);
     } catch (e) { setMsg(`Test failed: ${e.message}`); }
+  };
+
+  const testWhatsApp = async () => {
+    setMsg('Sending WhatsApp test…');
+    try {
+      const r = await api('/test-whatsapp', { method: 'POST' });
+      setMsg(`WhatsApp test sent to ${r.recipients.join(', ')}`);
+    } catch (e) { setMsg(`WhatsApp test failed: ${e.message}`); }
+  };
+
+  const listGroups = async () => {
+    setMsg('Loading groups…');
+    setWaGroups(null);
+    try {
+      const groups = await api('/whatsapp-groups');
+      setWaGroups(groups);
+      setMsg(groups.length ? 'Copy a group ID into WhatsApp recipients above, then Save.' : 'No groups found — add the linked WhatsApp number to a group first.');
+    } catch (e) { setMsg(`Could not load groups: ${e.message}`); }
   };
 
   const Field = ({ label, children, hint }) => (
@@ -246,10 +267,32 @@ export function SettingsView({ settings, onSaved, user }) {
               <option value="false">Off (Shopify only)</option>
             </select>
           </Field>
+          <Field label="WhatsApp alerts">
+            <select className={inputCls} value={String(form.whatsappEnabled)} onChange={(e) => setForm({ ...form, whatsappEnabled: e.target.value === 'true' })}>
+              <option value="false">Off</option>
+              <option value="true">On</option>
+            </select>
+          </Field>
         </div>
-        <div className="flex items-center gap-3">
+        <Field label="WhatsApp recipients" hint="Comma separated. People: phone with country code, digits only (e.g. 15551234567). Groups: group ID ending in @g.us — use the List WhatsApp groups button to find them.">
+          <input className={inputCls} value={form.whatsappRecipients} onChange={(e) => setForm({ ...form, whatsappRecipients: e.target.value })} placeholder="15551234567, 120363041234567890@g.us" />
+        </Field>
+        {waGroups && waGroups.length > 0 && (
+          <div className="rounded-lg border border-line bg-porcelain/60 p-3">
+            <div className="eyebrow mb-2">Your WhatsApp groups</div>
+            {waGroups.map((g) => (
+              <div key={g.id} className="flex items-baseline gap-2 py-0.5 text-sm">
+                <span>{g.name}</span>
+                <span className="ml-auto select-all font-mono text-[11px] text-muted">{g.id}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-3">
           <button className="btn btn-dark" onClick={save}>Save settings</button>
           <button className="btn btn-ghost" onClick={testEmail}>Send test email</button>
+          <button className="btn btn-ghost" onClick={testWhatsApp}>Send test WhatsApp</button>
+          <button className="btn btn-ghost" onClick={listGroups}>List WhatsApp groups</button>
           {msg && <span className="text-sm text-muted">{msg}</span>}
         </div>
       </div>

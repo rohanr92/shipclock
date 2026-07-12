@@ -74,6 +74,8 @@ const DEFAULT_SETTINGS = {
   grace_hours: '3', // Mirakl order must be this old before "missing in Shopify" alert
   lookback_days: '14',
   track_mirakl: 'true', // OFF = only track Shopify orders, skip Mirakl platform polling
+  whatsapp_enabled: 'false',
+  whatsapp_recipients: '', // phone numbers (15551234567) and/or group ids (...@g.us), comma separated
 };
 
 const insSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
@@ -95,6 +97,11 @@ function getSettings() {
     graceHours: parseFloat(s.grace_hours || '3'),
     lookbackDays: parseInt(s.lookback_days || '14', 10),
     trackMirakl: s.track_mirakl !== 'false',
+    whatsappEnabled: s.whatsapp_enabled === 'true',
+    whatsappRecipients: (s.whatsapp_recipients || '')
+      .split(',')
+      .map((x) => x.trim())
+      .filter(Boolean),
   };
 }
 

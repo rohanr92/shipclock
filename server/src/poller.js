@@ -4,6 +4,7 @@ const config = require('./config');
 const shopify = require('./shopify');
 const mirakl = require('./mirakl');
 const mailer = require('./mailer');
+const whatsapp = require('./whatsapp');
 const { addBusinessHours } = require('./sla');
 
 const upsertOrder = db.prepare(`
@@ -238,44 +239,58 @@ async function runPoll(trigger = 'cron') {
 
   const recips = settings.recipients;
   const ts = DateTime.utc().toISO();
+  const emailOn = recips.length > 0;
+  const waOn = settings.whatsappEnabled && settings.whatsappRecipients.length > 0 && whatsapp.isConfigured();
 
-  if (recips.length > 0) {
-    try {
-      if (overdue.length) {
-        await mailer.sendOverdue(recips, overdue);
-        for (const r of overdue)
-          logAlert.run('OVERDUE', r.order_key, r.channel, `${r.name} / ${r.mirakl_order_id} overdue ${r.delta}`, recips.join(','), ts);
-        detail.alerts.overdue = overdue.length;
+  // Send one alert batch over both channels; dedupe (log) if at least one delivered.
+  const dispatch = async (type, rows, emailFn, waFn) => {
+    if (!rows.length) return 0;
+    let delivered = false;
+    if (emailOn) {
+      try { await emailFn(recips, rows); delivered = true; }
+      catch (e) { detail.errors.push(`Email ${type}: ${e.message}`); }
+    }
+    if (waOn) {
+      try { await waFn(settings, rows); delivered = true; }
+      catch (e) { detail.errors.push(`WhatsApp ${type}: ${e.message}`); }
+    }
+    return delivered ? rows.length : 0;
+  };
+
+  if (emailOn || waOn) {
+    let n;
+    n = await dispatch('OVERDUE', overdue, mailer.sendOverdue, whatsapp.sendOverdue);
+    if (n) {
+      for (const r of overdue)
+        logAlert.run('OVERDUE', r.order_key, r.channel, `${r.name} / ${r.mirakl_order_id} overdue ${r.delta}`, recips.join(','), ts);
+      detail.alerts.overdue = n;
+    }
+    n = await dispatch('AT_RISK', atRisk, mailer.sendAtRisk, whatsapp.sendAtRisk);
+    if (n) {
+      for (const r of atRisk)
+        logAlert.run('AT_RISK', r.order_key, r.channel, `${r.name} / ${r.mirakl_order_id} due in ${r.delta}`, recips.join(','), ts);
+      detail.alerts.atRisk = n;
+    }
+    n = await dispatch('CARRIER_DELAYED', carrierDelayed, mailer.sendCarrierDelayed, whatsapp.sendCarrierDelayed);
+    if (n) {
+      for (const r of carrierDelayed)
+        logAlert.run('CARRIER_DELAYED', r.order_key, r.channel, `${r.name} / ${r.mirakl_order_id} in transit but delayed by carrier`, recips.join(','), ts);
+      detail.alerts.delayed = n;
+    }
+    n = await dispatch('STOCK_ISSUE', stockIssues, mailer.sendStockIssue, whatsapp.sendStockIssue);
+    if (n) {
+      for (const r of stockIssues)
+        logAlert.run('STOCK_ISSUE', r.order_key, r.channel, `${r.name} / ${r.mirakl_order_id} open order with no stock`, recips.join(','), ts);
+      detail.alerts.stock = n;
+    }
+    n = await dispatch('MISSING_IN_SHOPIFY', missingResult.toAlert, mailer.sendMissing, whatsapp.sendMissing);
+    if (n) {
+      const mark = db.prepare('UPDATE missing SET last_alert_at = ? WHERE mirakl_order_id = ?');
+      for (const m of missingResult.toAlert) {
+        logAlert.run('MISSING_IN_SHOPIFY', m.mirakl_order_id, m.channel, `${m.mirakl_order_id} on ${config.channelLabel(m.channel)} Mirakl, not in Shopify`, recips.join(','), ts);
+        mark.run(ts, m.mirakl_order_id);
       }
-      if (atRisk.length) {
-        await mailer.sendAtRisk(recips, atRisk);
-        for (const r of atRisk)
-          logAlert.run('AT_RISK', r.order_key, r.channel, `${r.name} / ${r.mirakl_order_id} due in ${r.delta}`, recips.join(','), ts);
-        detail.alerts.atRisk = atRisk.length;
-      }
-      if (carrierDelayed.length) {
-        await mailer.sendCarrierDelayed(recips, carrierDelayed);
-        for (const r of carrierDelayed)
-          logAlert.run('CARRIER_DELAYED', r.order_key, r.channel, `${r.name} / ${r.mirakl_order_id} in transit but delayed by carrier`, recips.join(','), ts);
-        detail.alerts.delayed = carrierDelayed.length;
-      }
-      if (stockIssues.length) {
-        await mailer.sendStockIssue(recips, stockIssues);
-        for (const r of stockIssues)
-          logAlert.run('STOCK_ISSUE', r.order_key, r.channel, `${r.name} / ${r.mirakl_order_id} open order with no stock`, recips.join(','), ts);
-        detail.alerts.stock = stockIssues.length;
-      }
-      if (missingResult.toAlert.length) {
-        await mailer.sendMissing(recips, missingResult.toAlert);
-        const mark = db.prepare('UPDATE missing SET last_alert_at = ? WHERE mirakl_order_id = ?');
-        for (const m of missingResult.toAlert) {
-          logAlert.run('MISSING_IN_SHOPIFY', m.mirakl_order_id, m.channel, `${m.mirakl_order_id} on ${config.channelLabel(m.channel)} Mirakl, not in Shopify`, recips.join(','), ts);
-          mark.run(ts, m.mirakl_order_id);
-        }
-        detail.alerts.missing = missingResult.toAlert.length;
-      }
-    } catch (e) {
-      detail.errors.push(`Email: ${e.message}`);
+      detail.alerts.missing = n;
     }
   } else if (overdue.length || atRisk.length || carrierDelayed.length || stockIssues.length || missingResult.toAlert.length) {
     detail.errors.push('Alerts pending but no recipients configured (Settings).');

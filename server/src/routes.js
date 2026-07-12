@@ -4,6 +4,7 @@ const { db, getSettings, saveSettings } = require('./db');
 const config = require('./config');
 const { runPoll } = require('./poller');
 const mailer = require('./mailer');
+const whatsapp = require('./whatsapp');
 
 const router = express.Router();
 
@@ -105,6 +106,9 @@ router.put('/settings', (req, res) => {
   if (b.graceHours !== undefined) patch.grace_hours = b.graceHours;
   if (b.lookbackDays !== undefined) patch.lookback_days = b.lookbackDays;
   if (b.trackMirakl !== undefined) patch.track_mirakl = String(!!b.trackMirakl);
+  if (b.whatsappEnabled !== undefined) patch.whatsapp_enabled = String(!!b.whatsappEnabled);
+  if (b.whatsappRecipients !== undefined)
+    patch.whatsapp_recipients = Array.isArray(b.whatsappRecipients) ? b.whatsappRecipients.join(',') : String(b.whatsappRecipients);
   saveSettings(patch);
   res.json(getSettings());
 });
@@ -113,6 +117,29 @@ router.post('/run-now', async (req, res) => {
   try {
     const detail = await runPoll('manual');
     res.json(detail);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.post('/test-whatsapp', async (req, res) => {
+  try {
+    const settings = getSettings();
+    if (!whatsapp.isConfigured())
+      return res.status(400).json({ error: 'GREEN_API_ID / GREEN_API_TOKEN not set on the server' });
+    if (!settings.whatsappRecipients.length)
+      return res.status(400).json({ error: 'No WhatsApp recipients configured' });
+    await whatsapp.sendTest(settings);
+    res.json({ ok: true, recipients: settings.whatsappRecipients });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.get('/whatsapp-groups', async (req, res) => {
+  try {
+    const groups = await whatsapp.getGroups();
+    res.json(groups);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
