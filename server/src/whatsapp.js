@@ -81,7 +81,7 @@ function orderBlock(r, extraLines) {
   ].join('\n');
 }
 
-const FOOTER = '\n\n_ShipClock · 48 business-hour ship SLA (Sat/Sun excluded)_';
+const FOOTER = '';
 
 async function sendOverdue(settings, rows) {
   const msg =
