@@ -270,6 +270,40 @@ async function sendDailySummary(recipients, d) {
   await send(recipients, subject, html);
 }
 
+const fPct = (v) => (v == null ? '&mdash;' : `${Math.round(v * 100)}%`);
+const fH = (v) => (v == null ? '&mdash;' : `${v.toFixed(1)}h`);
+const fD2 = (v) => (v == null ? '&mdash;' : `${v.toFixed(1)}d`);
+
+function scorecardTable(cur) {
+  const row = (label, m, bold) => `<tr${bold ? ` style="background:#f6f7f6;font-weight:bold"` : ''}>
+    <td style="${S.td}">${label}</td>
+    <td style="${S.td}">${m.orders}</td>
+    <td style="${S.td};color:${m.onTimeRate != null && m.onTimeRate < 0.85 ? '#c0362c' : m.onTimeRate != null && m.onTimeRate < 0.95 ? '#9a6b15' : '#0e7a4e'}"><b>${fPct(m.onTimeRate)}</b></td>
+    <td style="${S.td}">${fH(m.avgShipBusinessHours)}</td>
+    <td style="${S.td}">${fD2(m.avgDeliveryDays)}</td>
+    <td style="${S.td}">${m.lateShipped}</td>
+    <td style="${S.td}">${fPct(m.cancelRate)}</td>
+  </tr>`;
+  const header = `<tr>
+    <th style="${S.th}">Marketplace</th><th style="${S.th}">Orders</th><th style="${S.th}">On-time</th>
+    <th style="${S.th}">Avg ship</th><th style="${S.th}">Avg delivery</th><th style="${S.th}">Late</th><th style="${S.th}">Cancelled</th></tr>`;
+  return `<table style="${S.table}">${header}${row('All marketplaces', cur.all, true)}${cur.channels.map((c) => row(config.channelLabel(c.id), c)).join('')}</table>`;
+}
+
+async function sendWeeklyScorecard(recipients, { cur, prev, insights, range }) {
+  const otp = cur.all.onTimeRate == null ? 'n/a' : `${Math.round(cur.all.onTimeRate * 100)}% on-time`;
+  const subject = `[ShipClock] Weekly scorecard ${range} - ${cur.all.orders} orders, ${otp}`;
+  const insightHtml = `<p style="font-size:13px;font-weight:bold;margin:18px 0 6px">What the numbers say</p>
+    <ul style="font-size:13px;line-height:1.7;padding-left:18px;margin:0">${insights.map((i) => `<li>${i}</li>`).join('')}</ul>
+    <p style="font-size:11px;color:#8a939b;margin-top:14px">Method: clock starts at order creation in Shopify; "shipped" = first carrier scan reported to Shopify (checked every 15 min); on-time = scan within 48 business hours (Sat/Sun excluded); delivery in calendar days.</p>`;
+  const html = shell(
+    `Weekly scorecard — ${range}`,
+    `Last 7 days vs the week before. Previous week: ${prev.all.orders} orders, ${fPct(prev.all.onTimeRate)} on-time.`,
+    scorecardTable(cur) + insightHtml
+  );
+  await send(recipients, subject, html);
+}
+
 async function sendWelcome(email, password, appUrl) {
   const link = appUrl ? `<p style="font-size:13px">Sign in here: <a href="${appUrl}">${appUrl}</a></p>` : '';
   const html = shell(
@@ -294,4 +328,4 @@ async function sendTest(recipients) {
   );
 }
 
-module.exports = { sendOverdue, sendAtRisk, sendCarrierDelayed, sendStockIssue, sendMissing, sendDailySummary, sendWelcome, sendTest };
+module.exports = { sendOverdue, sendAtRisk, sendCarrierDelayed, sendStockIssue, sendMissing, sendDailySummary, sendWeeklyScorecard, sendWelcome, sendTest };

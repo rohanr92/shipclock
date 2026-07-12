@@ -5,6 +5,7 @@ const shopify = require('./shopify');
 const mirakl = require('./mirakl');
 const mailer = require('./mailer');
 const whatsapp = require('./whatsapp');
+const scorecard = require('./scorecard');
 const { addBusinessHours } = require('./sla');
 
 const upsertOrder = db.prepare(`
@@ -371,4 +372,42 @@ async function runDailySummary(trigger = 'cron') {
   return { trigger, open: open.length, overdue: overdue.length, dueSoon: dueSoon.length, dueToday: dueToday.length, delivered, errors };
 }
 
-module.exports = { runPoll, runDailySummary };
+// ---------- Saturday 9 AM weekly scorecard report ----------
+async function runWeeklyReport(trigger = 'cron') {
+  const settings = getSettings();
+  if (!settings.weeklyReportEnabled) return { trigger, skipped: 'weekly report disabled in settings' };
+
+  const now = DateTime.utc();
+  const last = db
+    .prepare("SELECT sent_at FROM alerts WHERE type = 'WEEKLY_SCORECARD' ORDER BY sent_at DESC LIMIT 1")
+    .get();
+  if (trigger === 'cron' && last && now.diff(DateTime.fromISO(last.sent_at), 'days').days < 5) {
+    return { trigger, skipped: 'already sent this week' };
+  }
+
+  const cur = scorecard.buildScorecard(7);
+  const prev = scorecard.buildScorecard(7, 7);
+  const insights = scorecard.buildInsights(cur, prev);
+  const fmtDay = (iso) => DateTime.fromISO(iso).setZone(config.TZ).toFormat('MMM d');
+  const range = `${fmtDay(cur.since)} – ${fmtDay(now.toISO())}`;
+  const data = { cur, prev, insights, range };
+
+  const recips = settings.recipients;
+  const errors = [];
+  let delivered = false;
+  if (recips.length) {
+    try { await mailer.sendWeeklyScorecard(recips, data); delivered = true; }
+    catch (e) { errors.push(`Email: ${e.message}`); }
+  }
+  if (settings.whatsappEnabled && settings.whatsappRecipients.length && whatsapp.isConfigured()) {
+    try { await whatsapp.sendWeeklyScorecard(settings, data); delivered = true; }
+    catch (e) { errors.push(`WhatsApp: ${e.message}`); }
+  }
+  if (delivered) {
+    const otp = cur.all.onTimeRate == null ? 'n/a' : `${Math.round(cur.all.onTimeRate * 100)}%`;
+    logAlert.run('WEEKLY_SCORECARD', 'scorecard', 'all', `${range}: ${cur.all.orders} orders · on-time ${otp}`, recips.join(','), now.toISO());
+  }
+  return { trigger, range, orders: cur.all.orders, onTimeRate: cur.all.onTimeRate, delivered, errors };
+}
+
+module.exports = { runPoll, runDailySummary, runWeeklyReport };

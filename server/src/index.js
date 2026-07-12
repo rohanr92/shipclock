@@ -4,7 +4,7 @@ const cron = require('node-cron');
 const config = require('./config');
 const routes = require('./routes');
 const auth = require('./auth');
-const { runPoll, runDailySummary } = require('./poller');
+const { runPoll, runDailySummary, runWeeklyReport } = require('./poller');
 
 const app = express();
 app.use(express.json());
@@ -40,6 +40,14 @@ cron.schedule(`*/${config.POLL_MINUTES} * * * *`, () => {
     (e) => console.error('[poll] failed:', e.message)
   );
 });
+
+// Weekly scorecard report every Saturday 9:00 AM in the configured timezone
+cron.schedule('0 9 * * 6', () => {
+  runWeeklyReport('cron').then(
+    (d) => console.log('[weekly]', JSON.stringify(d)),
+    (e) => console.error('[weekly] failed:', e.message)
+  );
+}, { timezone: config.TZ });
 
 // Daily morning summary at 8:00 AM in the configured timezone (Florida/ET by default)
 cron.schedule('0 8 * * *', () => {

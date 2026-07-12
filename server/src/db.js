@@ -79,6 +79,7 @@ const DEFAULT_SETTINGS = {
   whatsapp_enabled: 'false',
   whatsapp_recipients: '', // phone numbers (15551234567) and/or group ids (...@g.us), comma separated
   summary_enabled: 'true', // daily 8 AM ET morning summary
+  weekly_report_enabled: 'true', // Saturday 9 AM ET scorecard report
 };
 
 const insSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
@@ -106,6 +107,7 @@ function getSettings() {
       .map((x) => x.trim())
       .filter(Boolean),
     summaryEnabled: s.summary_enabled !== 'false',
+    weeklyReportEnabled: s.weekly_report_enabled !== 'false',
   };
 }
 

@@ -188,6 +188,35 @@ async function sendDailySummary(settings, d) {
   await broadcast(settings, buildDailySummaryMessage(d));
 }
 
+function buildWeeklyScorecardMessage({ cur, prev, insights, range }) {
+  const pct = (v) => (v == null ? '-' : `${Math.round(v * 100)}%`);
+  const h = (v) => (v == null ? '-' : `${v.toFixed(1)}h`);
+  const dd = (v) => (v == null ? '-' : `${v.toFixed(1)}d`);
+  let msg = `📊 *Weekly scorecard — ${range}*\n`;
+  msg += `Orders: ${cur.all.orders} (prev week ${prev.all.orders})\n`;
+  msg += `On-time ship: *${pct(cur.all.onTimeRate)}*${prev.all.onTimeRate != null ? ` (prev ${pct(prev.all.onTimeRate)})` : ''}\n`;
+  msg += `Avg ship time: ${h(cur.all.avgShipBusinessHours)} business\n`;
+  msg += `Avg delivery: ${dd(cur.all.avgDeliveryDays)}\n`;
+  msg += `Shipped late: ${cur.all.lateShipped} · Cancelled: ${pct(cur.all.cancelRate)}\n`;
+
+  const withOrders = cur.channels.filter((c) => c.orders > 0);
+  if (withOrders.length) {
+    msg += `\n*By marketplace:*\n`;
+    msg += withOrders
+      .map((c) => `${config.channelLabel(c.id)} — ${pct(c.onTimeRate)} on-time · ${c.orders} orders${c.lateShipped ? ` · ${c.lateShipped} late` : ''}`)
+      .join('\n');
+  }
+  if (insights.length) {
+    msg += `\n\n*What the numbers say:*\n`;
+    msg += insights.map((i) => `• ${i}`).join('\n');
+  }
+  return msg;
+}
+
+async function sendWeeklyScorecard(settings, data) {
+  await broadcast(settings, buildWeeklyScorecardMessage(data));
+}
+
 async function sendTest(settings) {
   await broadcast(
     settings,
@@ -200,6 +229,8 @@ module.exports = {
   getGroups,
   buildDailySummaryMessage,
   sendDailySummary,
+  buildWeeklyScorecardMessage,
+  sendWeeklyScorecard,
   sendOverdue,
   sendAtRisk,
   sendCarrierDelayed,

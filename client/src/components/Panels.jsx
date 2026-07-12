@@ -186,6 +186,7 @@ export function SettingsView({ settings, onSaved, user }) {
     whatsappEnabled: settings.whatsappEnabled,
     whatsappRecipients: (settings.whatsappRecipients || []).join(', '),
     summaryEnabled: settings.summaryEnabled,
+    weeklyReportEnabled: settings.weeklyReportEnabled,
   });
   const [msg, setMsg] = useState('');
   const [waGroups, setWaGroups] = useState(null);
@@ -213,6 +214,14 @@ export function SettingsView({ settings, onSaved, user }) {
       const r = await api('/test-whatsapp', { method: 'POST' });
       setMsg(`WhatsApp test sent to ${r.recipients.join(', ')}`);
     } catch (e) { setMsg(`WhatsApp test failed: ${e.message}`); }
+  };
+
+  const sendWeeklyNow = async () => {
+    setMsg('Sending weekly scorecard…');
+    try {
+      const r = await api('/send-weekly-now', { method: 'POST' });
+      setMsg(r.delivered ? `Scorecard sent (${r.range}, ${r.orders} orders).` : `Not sent: ${(r.errors || []).join(' · ') || r.skipped || 'no channels configured'}`);
+    } catch (e) { setMsg(`Scorecard failed: ${e.message}`); }
   };
 
   const sendSummaryNow = async () => {
@@ -288,6 +297,12 @@ export function SettingsView({ settings, onSaved, user }) {
               <option value="false">Off</option>
             </select>
           </Field>
+          <Field label="Weekly scorecard (Sat 9 AM)" hint="7-day performance report with trends and what to improve.">
+            <select className={inputCls} value={String(form.weeklyReportEnabled)} onChange={(e) => setForm({ ...form, weeklyReportEnabled: e.target.value === 'true' })}>
+              <option value="true">On</option>
+              <option value="false">Off</option>
+            </select>
+          </Field>
         </div>
         <Field label="WhatsApp recipients" hint="Comma separated. People: phone with country code, digits only (e.g. 15551234567). Groups: group ID ending in @g.us — use the List WhatsApp groups button to find them.">
           <input className={inputCls} value={form.whatsappRecipients} onChange={(e) => setForm({ ...form, whatsappRecipients: e.target.value })} placeholder="15551234567, 120363041234567890@g.us" />
@@ -309,6 +324,7 @@ export function SettingsView({ settings, onSaved, user }) {
           <button className="btn btn-ghost" onClick={testWhatsApp}>Send test WhatsApp</button>
           <button className="btn btn-ghost" onClick={listGroups}>List WhatsApp groups</button>
           <button className="btn btn-ghost" onClick={sendSummaryNow}>Send summary now</button>
+          <button className="btn btn-ghost" onClick={sendWeeklyNow}>Send scorecard now</button>
           {msg && <span className="text-sm text-muted">{msg}</span>}
         </div>
       </div>
