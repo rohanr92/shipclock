@@ -185,6 +185,7 @@ export function SettingsView({ settings, onSaved, user }) {
     trackMirakl: settings.trackMirakl,
     whatsappEnabled: settings.whatsappEnabled,
     whatsappRecipients: (settings.whatsappRecipients || []).join(', '),
+    summaryEnabled: settings.summaryEnabled,
   });
   const [msg, setMsg] = useState('');
   const [waGroups, setWaGroups] = useState(null);
@@ -212,6 +213,14 @@ export function SettingsView({ settings, onSaved, user }) {
       const r = await api('/test-whatsapp', { method: 'POST' });
       setMsg(`WhatsApp test sent to ${r.recipients.join(', ')}`);
     } catch (e) { setMsg(`WhatsApp test failed: ${e.message}`); }
+  };
+
+  const sendSummaryNow = async () => {
+    setMsg('Sending summary…');
+    try {
+      const r = await api('/send-summary-now', { method: 'POST' });
+      setMsg(r.delivered ? `Summary sent (${r.open} open, ${r.overdue} overdue).` : `Not sent: ${(r.errors || []).join(' · ') || r.skipped || 'no channels configured'}`);
+    } catch (e) { setMsg(`Summary failed: ${e.message}`); }
   };
 
   const listGroups = async () => {
@@ -273,6 +282,12 @@ export function SettingsView({ settings, onSaved, user }) {
               <option value="true">On</option>
             </select>
           </Field>
+          <Field label="Daily 8 AM summary" hint="Morning worklist (email + WhatsApp): how many to ship, which are urgent.">
+            <select className={inputCls} value={String(form.summaryEnabled)} onChange={(e) => setForm({ ...form, summaryEnabled: e.target.value === 'true' })}>
+              <option value="true">On</option>
+              <option value="false">Off</option>
+            </select>
+          </Field>
         </div>
         <Field label="WhatsApp recipients" hint="Comma separated. People: phone with country code, digits only (e.g. 15551234567). Groups: group ID ending in @g.us — use the List WhatsApp groups button to find them.">
           <input className={inputCls} value={form.whatsappRecipients} onChange={(e) => setForm({ ...form, whatsappRecipients: e.target.value })} placeholder="15551234567, 120363041234567890@g.us" />
@@ -293,6 +308,7 @@ export function SettingsView({ settings, onSaved, user }) {
           <button className="btn btn-ghost" onClick={testEmail}>Send test email</button>
           <button className="btn btn-ghost" onClick={testWhatsApp}>Send test WhatsApp</button>
           <button className="btn btn-ghost" onClick={listGroups}>List WhatsApp groups</button>
+          <button className="btn btn-ghost" onClick={sendSummaryNow}>Send summary now</button>
           {msg && <span className="text-sm text-muted">{msg}</span>}
         </div>
       </div>

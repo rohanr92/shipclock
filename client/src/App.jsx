@@ -3,10 +3,12 @@ import { api, fmtDate, getToken, setToken } from './lib.js';
 import { KpiStrip, OrdersTable } from './components/Orders.jsx';
 import { MissingView, AlertsView, SettingsTab } from './components/Panels.jsx';
 import Login from './components/Login.jsx';
+import ScorecardView from './components/Scorecard.jsx';
 
 const TABS = [
   { id: 'orders', label: 'Orders' },
   { id: 'missing', label: 'Missing in Shopify' },
+  { id: 'scorecard', label: 'Scorecard' },
   { id: 'alerts', label: 'Alert log' },
   { id: 'settings', label: 'Settings' },
 ];
@@ -145,6 +147,7 @@ export default function App() {
               />
             )}
             {tab === 'missing' && <MissingView missing={data.missing} />}
+            {tab === 'scorecard' && <ScorecardView />}
             {tab === 'alerts' && <AlertsView />}
             {tab === 'settings' && <SettingsTab settings={data.settings} onSaved={load} user={user} />}
           </main>

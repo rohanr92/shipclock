@@ -225,6 +225,51 @@ async function sendMissing(recipients, rows) {
   await send(recipients, subject, html);
 }
 
+function summaryLine(r, humanDeadline) {
+  const m = Math.abs(Math.round(r.minutesLeft));
+  const h = Math.floor(m / 60);
+  const left = r.minutesLeft <= 0 ? `overdue ${h}h ${m % 60}m` : `${h}h ${m % 60}m left`;
+  const color = r.minutesLeft <= 0 ? '#c0362c' : r.minutesLeft <= 120 ? '#9a6b15' : '#3b444b';
+  return `<tr>
+    <td style="${S.td}"><b>${r.name}</b></td>
+    <td style="${S.td}">${config.channelLabel(r.channel)}</td>
+    <td style="${S.td};${S.mono}">${r.mirakl_order_id}</td>
+    <td style="${S.td}">${productsCell(JSON.parse(r.products || '[]'))}</td>
+    <td style="${S.td}">${humanDeadline(r.deadline)}</td>
+    <td style="${S.td};color:${color};font-weight:bold">${left}</td>
+  </tr>`;
+}
+
+async function sendDailySummary(recipients, d) {
+  const total = d.open.length;
+  const subject = total === 0
+    ? '[ShipClock] Morning summary - all clear, nothing to ship'
+    : `[ShipClock] Morning summary - ${total} to ship${d.overdue.length ? `, ${d.overdue.length} OVERDUE` : ''}${d.dueSoon.length ? `, ${d.dueSoon.length} due in 2h` : ''}`;
+
+  const counts = `<p style="font-size:14px;line-height:1.8">
+    ${d.overdue.length ? `🔴 <b>${d.overdue.length} overdue</b> — ship first<br>` : ''}
+    ${d.dueSoon.length ? `⏰ <b>${d.dueSoon.length} due within 2 hours</b><br>` : ''}
+    ${d.dueToday.length ? `📦 ${d.dueToday.length} more due today<br>` : ''}
+    ${d.later ? `🗓 ${d.later} due later<br>` : ''}
+    </p>
+    <p style="font-size:12px;color:#5c6670">Also right now: ${d.delayed} carrier delayed · ${d.stock} with no stock · ${d.missing} missing in Shopify</p>`;
+
+  const urgent = [...d.overdue, ...d.dueSoon, ...d.dueToday];
+  const table = urgent.length
+    ? `<table style="${S.table}"><tr>
+        <th style="${S.th}">Shopify</th><th style="${S.th}">Marketplace</th>
+        <th style="${S.th}">Mirakl order ID</th><th style="${S.th}">Product / size</th>
+        <th style="${S.th}">Deadline</th><th style="${S.th}">Clock</th></tr>${urgent.map((r) => summaryLine(r, d.humanDeadline)).join('')}</table>`
+    : '';
+
+  const html = shell(
+    total === 0 ? `All clear — ${d.date}` : `${total} order${total > 1 ? 's' : ''} to ship — ${d.date}`,
+    total === 0 ? 'Nothing waiting to ship. Every order is with the carrier.' : "Today's shipping worklist, most urgent first.",
+    counts + table
+  );
+  await send(recipients, subject, html);
+}
+
 async function sendWelcome(email, password, appUrl) {
   const link = appUrl ? `<p style="font-size:13px">Sign in here: <a href="${appUrl}">${appUrl}</a></p>` : '';
   const html = shell(
@@ -249,4 +294,4 @@ async function sendTest(recipients) {
   );
 }
 
-module.exports = { sendOverdue, sendAtRisk, sendCarrierDelayed, sendStockIssue, sendMissing, sendWelcome, sendTest };
+module.exports = { sendOverdue, sendAtRisk, sendCarrierDelayed, sendStockIssue, sendMissing, sendDailySummary, sendWelcome, sendTest };

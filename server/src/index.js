@@ -4,7 +4,7 @@ const cron = require('node-cron');
 const config = require('./config');
 const routes = require('./routes');
 const auth = require('./auth');
-const { runPoll } = require('./poller');
+const { runPoll, runDailySummary } = require('./poller');
 
 const app = express();
 app.use(express.json());
@@ -40,3 +40,11 @@ cron.schedule(`*/${config.POLL_MINUTES} * * * *`, () => {
     (e) => console.error('[poll] failed:', e.message)
   );
 });
+
+// Daily morning summary at 8:00 AM in the configured timezone (Florida/ET by default)
+cron.schedule('0 8 * * *', () => {
+  runDailySummary('cron').then(
+    (d) => console.log('[summary]', JSON.stringify(d)),
+    (e) => console.error('[summary] failed:', e.message)
+  );
+}, { timezone: config.TZ });

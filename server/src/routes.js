@@ -2,7 +2,8 @@ const express = require('express');
 const { DateTime } = require('luxon');
 const { db, getSettings, saveSettings } = require('./db');
 const config = require('./config');
-const { runPoll } = require('./poller');
+const { runPoll, runDailySummary } = require('./poller');
+const { businessMinutesBetween } = require('./sla');
 const mailer = require('./mailer');
 const whatsapp = require('./whatsapp');
 
@@ -109,8 +110,56 @@ router.put('/settings', (req, res) => {
   if (b.whatsappEnabled !== undefined) patch.whatsapp_enabled = String(!!b.whatsappEnabled);
   if (b.whatsappRecipients !== undefined)
     patch.whatsapp_recipients = Array.isArray(b.whatsappRecipients) ? b.whatsappRecipients.join(',') : String(b.whatsappRecipients);
+  if (b.summaryEnabled !== undefined) patch.summary_enabled = String(!!b.summaryEnabled);
   saveSettings(patch);
   res.json(getSettings());
+});
+
+// Scorecard: fulfillment performance per marketplace over a period
+router.get('/scorecard', (req, res) => {
+  const days = [7, 30, 90].includes(parseInt(req.query.days, 10)) ? parseInt(req.query.days, 10) : 30;
+  const since = DateTime.utc().minus({ days }).toISO();
+  const rows = db.prepare('SELECT * FROM orders WHERE created_at >= ?').all(since);
+
+  const calc = (list) => {
+    const total = list.length;
+    const cancelled = list.filter((r) => r.cancelled).length;
+    const active = list.filter((r) => !r.cancelled);
+    const shipped = active.filter((r) => r.sla_met !== null && r.sla_met_at);
+    const onTime = shipped.filter((r) => r.sla_met === 1).length;
+    const late = shipped.filter((r) => r.sla_met === 0).length;
+    const shipMins = shipped.map((r) => businessMinutesBetween(r.created_at, r.sla_met_at));
+    const delivered = active.filter((r) => r.delivered_at);
+    const delivDays = delivered.map((r) => (new Date(r.delivered_at) - new Date(r.created_at)) / 86400000);
+    const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
+    return {
+      orders: total,
+      cancelled,
+      cancelRate: total ? cancelled / total : null,
+      shipped: shipped.length,
+      lateShipped: late,
+      onTimeRate: onTime + late > 0 ? onTime / (onTime + late) : null,
+      avgShipBusinessHours: avg(shipMins) !== null ? avg(shipMins) / 60 : null,
+      delivered: delivered.length,
+      avgDeliveryDays: avg(delivDays),
+      openNow: active.filter((r) => r.ship_state !== 'in_transit' && r.ship_state !== 'delayed').length,
+    };
+  };
+
+  res.json({
+    days,
+    all: calc(rows),
+    channels: config.CHANNELS.map((c) => ({ id: c.id, label: c.label, ...calc(rows.filter((r) => r.channel === c.id)) })),
+  });
+});
+
+router.post('/send-summary-now', async (req, res) => {
+  try {
+    const detail = await runDailySummary('manual');
+    res.json(detail);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 router.post('/run-now', async (req, res) => {

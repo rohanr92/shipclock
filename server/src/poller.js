@@ -10,10 +10,10 @@ const { addBusinessHours } = require('./sla');
 const upsertOrder = db.prepare(`
 INSERT INTO orders (order_key, name, legacy_id, created_at, channel, mirakl_order_id, products,
                     ship_state, display_status, tracking, deadline, cancelled, sla_met, sla_met_at,
-                    stock_issue, first_seen, updated_at)
+                    stock_issue, delivered_at, first_seen, updated_at)
 VALUES (@order_key, @name, @legacy_id, @created_at, @channel, @mirakl_order_id, @products,
         @ship_state, @display_status, @tracking, @deadline, @cancelled, @sla_met, @sla_met_at,
-        @stock_issue, @now, @now)
+        @stock_issue, @delivered_at, @now, @now)
 ON CONFLICT(order_key) DO UPDATE SET
   name = excluded.name,
   channel = excluded.channel,
@@ -27,6 +27,7 @@ ON CONFLICT(order_key) DO UPDATE SET
   sla_met = COALESCE(orders.sla_met, excluded.sla_met),
   sla_met_at = COALESCE(orders.sla_met_at, excluded.sla_met_at),
   stock_issue = excluded.stock_issue,
+  delivered_at = COALESCE(orders.delivered_at, excluded.delivered_at),
   updated_at = excluded.updated_at
 `);
 
@@ -91,6 +92,7 @@ async function syncShopify(settings, now) {
       sla_met: slaMet,
       sla_met_at: slaMetAt,
       stock_issue: stockIssue,
+      delivered_at: o.displayStatus === 'DELIVERED' ? nowISO : null,
       now: nowISO,
     });
   }
@@ -306,4 +308,67 @@ async function runPoll(trigger = 'cron') {
   return detail;
 }
 
-module.exports = { runPoll };
+function humanDeadline(iso) {
+  return DateTime.fromISO(iso, { setZone: true }).setZone(config.TZ).toFormat("h:mm a 'ET'");
+}
+
+// ---------- Daily 8 AM morning summary ----------
+async function runDailySummary(trigger = 'cron') {
+  const settings = getSettings();
+  if (!settings.summaryEnabled) return { trigger, skipped: 'summary disabled in settings' };
+
+  const now = DateTime.utc();
+  // Guard against double-sends (redeploys, restarts around 8 AM)
+  const last = db
+    .prepare("SELECT sent_at FROM alerts WHERE type = 'DAILY_SUMMARY' ORDER BY sent_at DESC LIMIT 1")
+    .get();
+  if (trigger === 'cron' && last && now.diff(DateTime.fromISO(last.sent_at), 'hours').hours < 20) {
+    return { trigger, skipped: 'already sent today' };
+  }
+
+  const endOfDay = now.setZone(config.TZ).endOf('day').toUTC();
+  const open = db
+    .prepare("SELECT * FROM orders WHERE cancelled = 0 AND ship_state NOT IN ('in_transit', 'delayed')")
+    .all()
+    .map((r) => ({ ...r, minutesLeft: DateTime.fromISO(r.deadline).diff(now, 'minutes').minutes }));
+
+  const overdue = open.filter((r) => r.minutesLeft <= 0);
+  const dueSoon = open.filter((r) => r.minutesLeft > 0 && r.minutesLeft <= 120);
+  const dueToday = open.filter((r) => r.minutesLeft > 120 && DateTime.fromISO(r.deadline) <= endOfDay);
+  const later = open.length - overdue.length - dueSoon.length - dueToday.length;
+
+  const data = {
+    date: now.setZone(config.TZ).toFormat('EEEE, MMM d'),
+    open,
+    overdue,
+    dueSoon,
+    dueToday,
+    later,
+    delayed: db.prepare("SELECT COUNT(*) c FROM orders WHERE cancelled = 0 AND ship_state = 'delayed'").get().c,
+    stock: db.prepare("SELECT COUNT(*) c FROM orders WHERE cancelled = 0 AND stock_issue = 1 AND ship_state NOT IN ('in_transit','delayed')").get().c,
+    missing: settings.trackMirakl ? db.prepare('SELECT COUNT(*) c FROM missing WHERE resolved = 0').get().c : 0,
+    humanDeadline,
+  };
+
+  const recips = settings.recipients;
+  const errors = [];
+  let delivered = false;
+  if (recips.length) {
+    try { await mailer.sendDailySummary(recips, data); delivered = true; }
+    catch (e) { errors.push(`Email: ${e.message}`); }
+  }
+  if (settings.whatsappEnabled && settings.whatsappRecipients.length && whatsapp.isConfigured()) {
+    try { await whatsapp.sendDailySummary(settings, data); delivered = true; }
+    catch (e) { errors.push(`WhatsApp: ${e.message}`); }
+  }
+  if (delivered) {
+    logAlert.run(
+      'DAILY_SUMMARY', 'summary', 'all',
+      `${open.length} to ship · ${overdue.length} overdue · ${dueSoon.length} due <2h · ${dueToday.length} due today`,
+      recips.join(','), now.toISO()
+    );
+  }
+  return { trigger, open: open.length, overdue: overdue.length, dueSoon: dueSoon.length, dueToday: dueToday.length, delivered, errors };
+}
+
+module.exports = { runPoll, runDailySummary };

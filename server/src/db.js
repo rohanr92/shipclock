@@ -64,6 +64,8 @@ CREATE TABLE IF NOT EXISTS runs (
 
 // Migration: add stock_issue column to existing databases
 try { db.exec('ALTER TABLE orders ADD COLUMN stock_issue INTEGER DEFAULT 0'); } catch (e) {}
+// Migration: delivered_at timestamp (stamped when a fulfillment first shows DELIVERED)
+try { db.exec('ALTER TABLE orders ADD COLUMN delivered_at TEXT'); } catch (e) {}
 
 const DEFAULT_SETTINGS = {
   recipients: config.DEFAULT_RECIPIENTS, // comma separated
@@ -76,6 +78,7 @@ const DEFAULT_SETTINGS = {
   track_mirakl: 'true', // OFF = only track Shopify orders, skip Mirakl platform polling
   whatsapp_enabled: 'false',
   whatsapp_recipients: '', // phone numbers (15551234567) and/or group ids (...@g.us), comma separated
+  summary_enabled: 'true', // daily 8 AM ET morning summary
 };
 
 const insSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
@@ -102,6 +105,7 @@ function getSettings() {
       .split(',')
       .map((x) => x.trim())
       .filter(Boolean),
+    summaryEnabled: s.summary_enabled !== 'false',
   };
 }
 

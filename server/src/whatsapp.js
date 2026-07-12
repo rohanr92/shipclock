@@ -152,6 +152,42 @@ async function sendMissing(settings, rows) {
   await broadcast(settings, msg);
 }
 
+function buildDailySummaryMessage(d) {
+  const shortProducts = (r) => {
+    const ps = JSON.parse(r.products || '[]');
+    if (!ps.length) return '';
+    const first = `${ps[0].title}${ps[0].variant ? ` ${ps[0].variant}` : ''} ×${ps[0].qty}`;
+    return ps.length > 1 ? `${first} +${ps.length - 1} more` : first;
+  };
+  const line = (r, tag) => `${tag} *${r.name}* · ${config.channelLabel(r.channel)} — ${shortProducts(r)} — due ${d.humanDeadline(r.deadline)}`;
+
+  let msg = `☀️ *Good morning — ShipClock, ${d.date}*\n`;
+  if (d.open.length === 0) {
+    msg += `✅ Nothing waiting to ship. Every order is with the carrier.`;
+  } else {
+    msg += `*${d.open.length} order${d.open.length > 1 ? 's' : ''} to ship*\n`;
+    if (d.overdue.length) msg += `🔴 ${d.overdue.length} overdue — ship first\n`;
+    if (d.dueSoon.length) msg += `⏰ ${d.dueSoon.length} due within 2 hours\n`;
+    if (d.dueToday.length) msg += `📦 ${d.dueToday.length} more due today\n`;
+    if (d.later) msg += `🗓 ${d.later} due later\n`;
+
+    const urgent = [
+      ...d.overdue.map((r) => line(r, '🔴')),
+      ...d.dueSoon.map((r) => line(r, '⏰')),
+      ...d.dueToday.map((r) => line(r, '📦')),
+    ].slice(0, 12);
+    if (urgent.length) msg += `\n${urgent.join('\n')}`;
+  }
+  if (d.delayed || d.stock || d.missing) {
+    msg += `\n\nAlso: ${d.delayed} carrier delayed · ${d.stock} no stock · ${d.missing} missing in Shopify`;
+  }
+  return msg;
+}
+
+async function sendDailySummary(settings, d) {
+  await broadcast(settings, buildDailySummaryMessage(d));
+}
+
 async function sendTest(settings) {
   await broadcast(
     settings,
@@ -162,6 +198,8 @@ async function sendTest(settings) {
 module.exports = {
   isConfigured,
   getGroups,
+  buildDailySummaryMessage,
+  sendDailySummary,
   sendOverdue,
   sendAtRisk,
   sendCarrierDelayed,
