@@ -6,15 +6,16 @@ const mirakl = require('./mirakl');
 const mailer = require('./mailer');
 const whatsapp = require('./whatsapp');
 const scorecard = require('./scorecard');
+const carriers = require('./carriers');
 const { addBusinessHours } = require('./sla');
 
 const upsertOrder = db.prepare(`
 INSERT INTO orders (order_key, name, legacy_id, created_at, channel, mirakl_order_id, products,
                     ship_state, display_status, tracking, deadline, cancelled, sla_met, sla_met_at,
-                    stock_issue, delivered_at, first_seen, updated_at)
+                    stock_issue, delivered_at, carrier_status, first_seen, updated_at)
 VALUES (@order_key, @name, @legacy_id, @created_at, @channel, @mirakl_order_id, @products,
         @ship_state, @display_status, @tracking, @deadline, @cancelled, @sla_met, @sla_met_at,
-        @stock_issue, @delivered_at, @now, @now)
+        @stock_issue, @delivered_at, @carrier_status, @now, @now)
 ON CONFLICT(order_key) DO UPDATE SET
   name = excluded.name,
   channel = excluded.channel,
@@ -29,6 +30,7 @@ ON CONFLICT(order_key) DO UPDATE SET
   sla_met_at = COALESCE(orders.sla_met_at, excluded.sla_met_at),
   stock_issue = excluded.stock_issue,
   delivered_at = COALESCE(orders.delivered_at, excluded.delivered_at),
+  carrier_status = COALESCE(excluded.carrier_status, orders.carrier_status),
   updated_at = excluded.updated_at
 `);
 
@@ -53,6 +55,8 @@ function humanDelta(minutes) {
 async function syncShopify(settings, now) {
   const orders = await shopify.fetchMiraklShopifyOrders(settings.lookbackDays);
   const nowISO = now.toISO();
+  let carrierLookups = 0;
+  const CARRIER_LOOKUP_CAP = 60; // per poll, safety valve
 
   for (const o of orders) {
     const existing = db.prepare('SELECT sla_met, sla_met_at FROM orders WHERE order_key = ?').get(o.orderKey);
@@ -61,11 +65,32 @@ async function syncShopify(settings, now) {
 
     const deadline = addBusinessHours(o.createdAt, settings.slaHours);
 
+    // Shopify often lags carrier scans by days. If a label exists but Shopify
+    // shows no scan, ask USPS/UPS/FedEx directly - a physical scan counts as shipped.
+    let carrierInfo = null;
+    if (
+      o.shipState === 'label_created' &&
+      !o.cancelled &&
+      slaMet === null &&
+      o.tracking.length &&
+      carriers.anyConfigured() &&
+      carrierLookups < CARRIER_LOOKUP_CAP
+    ) {
+      carrierLookups += 1;
+      carrierInfo = await carriers.firstScan(o.tracking);
+      if (carrierInfo && carrierInfo.scanned) {
+        o.shipState = 'in_transit';
+        o.displayStatus = 'IN_TRANSIT';
+      }
+    }
+
     const shipped = o.shipState === 'in_transit' || o.shipState === 'delayed';
     if (shipped && slaMet !== 1 && slaMet !== 0) {
-      // First time we see it with the carrier: record whether it beat the deadline.
-      slaMet = now.toISO() <= deadline ? 1 : 0;
-      slaMetAt = nowISO;
+      // First time we see it with the carrier. Prefer the carrier's real scan
+      // timestamp over our poll time - it's what actually happened.
+      const shipAt = carrierInfo && carrierInfo.scanTime ? carrierInfo.scanTime : nowISO;
+      slaMet = shipAt <= deadline ? 1 : 0;
+      slaMetAt = shipAt;
     }
 
     // Stock issue: an open order whose variant inventory is NEGATIVE.
@@ -94,6 +119,7 @@ async function syncShopify(settings, now) {
       sla_met_at: slaMetAt,
       stock_issue: stockIssue,
       delivered_at: o.displayStatus === 'DELIVERED' ? nowISO : null,
+      carrier_status: carrierInfo ? carrierInfo.summary : null,
       now: nowISO,
     });
   }

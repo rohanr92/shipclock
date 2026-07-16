@@ -66,6 +66,8 @@ CREATE TABLE IF NOT EXISTS runs (
 try { db.exec('ALTER TABLE orders ADD COLUMN stock_issue INTEGER DEFAULT 0'); } catch (e) {}
 // Migration: delivered_at timestamp (stamped when a fulfillment first shows DELIVERED)
 try { db.exec('ALTER TABLE orders ADD COLUMN delivered_at TEXT'); } catch (e) {}
+// Migration: latest direct-carrier tracking status (USPS/UPS/FedEx)
+try { db.exec('ALTER TABLE orders ADD COLUMN carrier_status TEXT'); } catch (e) {}
 
 const DEFAULT_SETTINGS = {
   recipients: config.DEFAULT_RECIPIENTS, // comma separated

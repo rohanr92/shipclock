@@ -42,6 +42,7 @@ router.get('/overview', (req, res) => {
       minutesLeft,
       sla,
       stockIssue: !!r.stock_issue,
+      carrierStatus: r.carrier_status || null,
     };
   });
 

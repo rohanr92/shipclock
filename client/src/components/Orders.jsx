@@ -105,6 +105,9 @@ export function OrdersTable({ orders, now, initialFilter, channels }) {
                 <td className="px-4 py-3">
                   <div className="font-display font-semibold">{o.name}</div>
                   <div className="font-mono text-[11px] text-muted">{o.displayStatus || o.shipState}</div>
+                  {o.carrierStatus && (
+                    <div className="mt-0.5 max-w-[220px] font-mono text-[10px] text-muted">{o.carrierStatus}</div>
+                  )}
                 </td>
                 <td className="px-4 py-3"><ChannelBadge channel={o.channel} label={o.channelLabel} /></td>
                 <td className="px-4 py-3 font-mono text-xs">{o.miraklOrderId}</td>
