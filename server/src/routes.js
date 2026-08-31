@@ -43,6 +43,8 @@ router.get('/overview', (req, res) => {
       sla,
       stockIssue: !!r.stock_issue,
       carrierStatus: r.carrier_status || null,
+      manualShipped: r.manual_shipped_at || null,
+      manualBy: r.manual_by || null,
     };
   });
 
@@ -60,6 +62,18 @@ router.get('/overview', (req, res) => {
       firstSeen: m.first_seen,
       lastAlertAt: m.last_alert_at,
     }));
+
+  const missingResolvedManually = settings.trackMirakl
+    ? db
+        .prepare('SELECT * FROM missing WHERE manual_resolved = 1 ORDER BY resolved_at DESC LIMIT 20')
+        .all()
+        .map((m) => ({
+          miraklOrderId: m.mirakl_order_id,
+          channel: m.channel,
+          channelLabel: config.channelLabel(m.channel),
+          resolvedAt: m.resolved_at,
+        }))
+    : [];
 
   const lastRun = db.prepare('SELECT * FROM runs ORDER BY id DESC LIMIT 1').get();
 
@@ -81,6 +95,7 @@ router.get('/overview', (req, res) => {
     kpis,
     orders,
     missing,
+    missingResolvedManually,
     lastRun: lastRun
       ? { finishedAt: lastRun.finished_at, ok: !!lastRun.ok, detail: JSON.parse(lastRun.detail || '{}') }
       : null,
@@ -140,6 +155,60 @@ router.post('/send-summary-now', async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// ---- Manual overrides (dashboard buttons) ----
+const auditLog = db.prepare(
+  'INSERT INTO alerts (type, order_key, channel, summary, recipients, sent_at) VALUES (?, ?, ?, ?, ?, ?)'
+);
+
+router.post('/orders/mark-shipped', (req, res) => {
+  const { orderKey } = req.body || {};
+  const row = orderKey ? db.prepare('SELECT * FROM orders WHERE order_key = ?').get(orderKey) : null;
+  if (!row) return res.status(404).json({ error: 'Order not found' });
+  const now = DateTime.utc().toISO();
+  const by = req.user ? req.user.email : 'dashboard';
+  db.prepare(
+    `UPDATE orders SET manual_shipped_at = ?, manual_by = ?, ship_state = 'in_transit', display_status = 'MANUAL',
+       sla_met = COALESCE(sla_met, CASE WHEN ? <= deadline THEN 1 ELSE 0 END),
+       sla_met_at = COALESCE(sla_met_at, ?)
+     WHERE order_key = ?`
+  ).run(now, by, now, now, orderKey);
+  auditLog.run('MANUAL_SHIPPED', orderKey, row.channel, `${row.name} / ${row.mirakl_order_id} marked shipped by ${by}`, '', now);
+  res.json({ ok: true });
+});
+
+router.post('/orders/unmark-shipped', (req, res) => {
+  const { orderKey } = req.body || {};
+  const row = orderKey ? db.prepare('SELECT * FROM orders WHERE order_key = ?').get(orderKey) : null;
+  if (!row) return res.status(404).json({ error: 'Order not found' });
+  const now = DateTime.utc().toISO();
+  const by = req.user ? req.user.email : 'dashboard';
+  db.prepare(
+    `UPDATE orders SET manual_shipped_at = NULL, manual_by = NULL, ship_state = 'unfulfilled', display_status = NULL,
+       sla_met = NULL, sla_met_at = NULL WHERE order_key = ?`
+  ).run(orderKey);
+  auditLog.run('MANUAL_UNDO', orderKey, row.channel, `${row.name} / ${row.mirakl_order_id} manual shipped mark removed by ${by}`, '', now);
+  res.json({ ok: true });
+});
+
+router.post('/missing/resolve', (req, res) => {
+  const { miraklOrderId } = req.body || {};
+  const row = miraklOrderId ? db.prepare('SELECT * FROM missing WHERE mirakl_order_id = ?').get(miraklOrderId) : null;
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  const now = DateTime.utc().toISO();
+  const by = req.user ? req.user.email : 'dashboard';
+  db.prepare('UPDATE missing SET resolved = 1, resolved_at = ?, manual_resolved = 1 WHERE mirakl_order_id = ?').run(now, miraklOrderId);
+  auditLog.run('MANUAL_RESOLVED', miraklOrderId, row.channel, `${miraklOrderId} marked resolved (found/handled) by ${by}`, '', now);
+  res.json({ ok: true });
+});
+
+router.post('/missing/unresolve', (req, res) => {
+  const { miraklOrderId } = req.body || {};
+  const row = miraklOrderId ? db.prepare('SELECT * FROM missing WHERE mirakl_order_id = ?').get(miraklOrderId) : null;
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  db.prepare('UPDATE missing SET resolved = 0, resolved_at = NULL, manual_resolved = 0 WHERE mirakl_order_id = ?').run(miraklOrderId);
+  res.json({ ok: true });
 });
 
 router.post('/run-now', async (req, res) => {

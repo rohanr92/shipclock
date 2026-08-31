@@ -59,11 +59,18 @@ async function syncShopify(settings, now) {
   const CARRIER_LOOKUP_CAP = 60; // per poll, safety valve
 
   for (const o of orders) {
-    const existing = db.prepare('SELECT sla_met, sla_met_at FROM orders WHERE order_key = ?').get(o.orderKey);
+    const existing = db.prepare('SELECT sla_met, sla_met_at, manual_shipped_at FROM orders WHERE order_key = ?').get(o.orderKey);
     let slaMet = existing ? existing.sla_met : null;
     let slaMetAt = existing ? existing.sla_met_at : null;
 
     const deadline = addBusinessHours(o.createdAt, settings.slaHours);
+
+    // Manual override from the dashboard: someone marked this shipped. Keep it
+    // shipped even if Shopify still shows no scan.
+    if (existing && existing.manual_shipped_at && o.shipState !== 'in_transit' && o.shipState !== 'delayed') {
+      o.shipState = 'in_transit';
+      o.displayStatus = 'MANUAL';
+    }
 
     // Shopify often lags carrier scans by days. If a label exists but Shopify
     // shows no scan, ask USPS/UPS/FedEx directly - a physical scan counts as shipped.
@@ -190,7 +197,9 @@ async function crossCheckMirakl(settings, now) {
     INSERT INTO missing (mirakl_order_id, channel, order_state, created_date, customer, products, first_seen, resolved)
     VALUES (@id, @channel, @state, @created, @customer, @products, @now, 0)
     ON CONFLICT(mirakl_order_id) DO UPDATE SET
-      order_state = excluded.order_state, resolved = 0, resolved_at = NULL
+      order_state = excluded.order_state,
+      resolved = CASE WHEN missing.manual_resolved = 1 THEN 1 ELSE 0 END,
+      resolved_at = CASE WHEN missing.manual_resolved = 1 THEN missing.resolved_at ELSE NULL END
   `);
 
   const seenThisRun = new Set();

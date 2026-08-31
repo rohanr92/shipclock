@@ -146,7 +146,7 @@ export default function App() {
                 channels={data.channels}
               />
             )}
-            {tab === 'missing' && <MissingView missing={data.missing} />}
+            {tab === 'missing' && <MissingView missing={data.missing} resolvedManually={data.missingResolvedManually || []} />}
             {tab === 'scorecard' && <ScorecardView />}
             {tab === 'alerts' && <AlertsView />}
             {tab === 'settings' && <SettingsTab settings={data.settings} onSaved={load} user={user} />}

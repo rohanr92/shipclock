@@ -2,7 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { ChannelBadge } from './Bits.jsx';
 import { api, fmtDate } from '../lib.js';
 
-export function MissingView({ missing }) {
+export function MissingView({ missing, resolvedManually = [] }) {
+  const act = async (path, body, confirmText) => {
+    if (confirmText && !window.confirm(confirmText)) return;
+    try { await api(path, { method: 'POST', body }); window.location.reload(); }
+    catch (e) { window.alert(e.message); }
+  };
   return (
     <div className="panel overflow-hidden">
       <div className="border-b border-line px-4 py-3">
@@ -15,7 +20,7 @@ export function MissingView({ missing }) {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-line text-left">
-              {['Mirakl order ID', 'Marketplace', 'State', 'Product', 'Placed', 'Last alerted'].map((h) => (
+              {['Mirakl order ID', 'Marketplace', 'State', 'Product', 'Placed', 'Last alerted', 'Action'].map((h) => (
                 <th key={h} className="eyebrow px-4 py-2.5">{h}</th>
               ))}
             </tr>
@@ -33,14 +38,35 @@ export function MissingView({ missing }) {
                 </td>
                 <td className="whitespace-nowrap px-4 py-3 text-xs text-muted">{fmtDate(m.createdDate)}</td>
                 <td className="whitespace-nowrap px-4 py-3 text-xs text-muted">{m.lastAlertAt ? fmtDate(m.lastAlertAt) : 'Not yet'}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-xs">
+                  <button
+                    className="text-muted underline hover:text-ink"
+                    onClick={() => act('/missing/resolve', { miraklOrderId: m.miraklOrderId }, `Mark ${m.miraklOrderId} as resolved? It will stop alerting even if it never appears in Shopify.`)}
+                  >
+                    Mark resolved
+                  </button>
+                </td>
               </tr>
             ))}
             {missing.length === 0 && (
-              <tr><td colSpan={6} className="px-4 py-10 text-center text-sm text-muted">Every active Mirakl order is matched in Shopify. ✓</td></tr>
+              <tr><td colSpan={7} className="px-4 py-10 text-center text-sm text-muted">Every active Mirakl order is matched in Shopify. ✓</td></tr>
             )}
           </tbody>
         </table>
       </div>
+      {resolvedManually.length > 0 && (
+        <div className="border-t border-line px-4 py-3">
+          <div className="eyebrow">Manually resolved</div>
+          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+            {resolvedManually.map((m) => (
+              <span key={m.miraklOrderId} className="font-mono">
+                {m.miraklOrderId} · {m.channelLabel} · {fmtDate(m.resolvedAt)} ·{' '}
+                <button className="underline hover:text-ink" onClick={() => act('/missing/unresolve', { miraklOrderId: m.miraklOrderId }, `Put ${m.miraklOrderId} back on the missing list?`)}>undo</button>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

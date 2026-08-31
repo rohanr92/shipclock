@@ -1,3 +1,19 @@
+async function manualAction(path, body, confirmText) {
+  if (confirmText && !window.confirm(confirmText)) return;
+  const res = await fetch(`/api${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('shipclock_token') || ''}` },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let m = `HTTP ${res.status}`;
+    try { m = (await res.json()).error || m; } catch (e) {}
+    window.alert(m);
+    return;
+  }
+  window.location.reload();
+}
+
 import React, { useMemo, useState } from 'react';
 import { ChannelBadge, SlaChip, SlaRail } from './Bits.jsx';
 import { fmtDate } from '../lib.js';
@@ -108,6 +124,24 @@ export function OrdersTable({ orders, now, initialFilter, channels }) {
                   {o.carrierStatus && (
                     <div className="mt-0.5 max-w-[220px] font-mono text-[10px] text-muted">{o.carrierStatus}</div>
                   )}
+                  {o.manualShipped ? (
+                    <div className="mt-1 text-[10px] text-good">
+                      marked shipped manually{o.manualBy ? ` by ${o.manualBy}` : ''} ·{' '}
+                      <button
+                        className="underline hover:text-ink"
+                        onClick={(e) => { e.stopPropagation(); manualAction('/orders/unmark-shipped', { orderKey: o.orderKey }, `Undo the manual "shipped" mark on ${o.name}?`); }}
+                      >
+                        undo
+                      </button>
+                    </div>
+                  ) : o.shipState !== 'in_transit' && o.shipState !== 'delayed' ? (
+                    <button
+                      className="mt-1 text-[10px] text-muted underline hover:text-ink"
+                      onClick={(e) => { e.stopPropagation(); manualAction('/orders/mark-shipped', { orderKey: o.orderKey }, `Mark ${o.name} as shipped now? Alerts for it will stop and it will count as shipped.`); }}
+                    >
+                      Mark as shipped
+                    </button>
+                  ) : null}
                 </td>
                 <td className="px-4 py-3"><ChannelBadge channel={o.channel} label={o.channelLabel} /></td>
                 <td className="px-4 py-3 font-mono text-xs">{o.miraklOrderId}</td>

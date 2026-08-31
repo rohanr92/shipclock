@@ -68,6 +68,16 @@ try { db.exec('ALTER TABLE orders ADD COLUMN stock_issue INTEGER DEFAULT 0'); } 
 try { db.exec('ALTER TABLE orders ADD COLUMN delivered_at TEXT'); } catch (e) {}
 // Migration: latest direct-carrier tracking status (USPS/UPS/FedEx)
 try { db.exec('ALTER TABLE orders ADD COLUMN carrier_status TEXT'); } catch (e) {}
+// Migration: manual overrides (mark shipped / mark missing resolved from the dashboard)
+try { db.exec('ALTER TABLE orders ADD COLUMN manual_shipped_at TEXT'); } catch (e) {}
+try { db.exec('ALTER TABLE orders ADD COLUMN manual_by TEXT'); } catch (e) {}
+try { db.exec('ALTER TABLE missing ADD COLUMN manual_resolved INTEGER DEFAULT 0'); } catch (e) {}
+// Migration: latest direct-carrier tracking status (USPS/UPS/FedEx)
+try { db.exec('ALTER TABLE orders ADD COLUMN carrier_status TEXT'); } catch (e) {}
+// Migration: manual overrides (mark shipped / mark missing resolved from the dashboard)
+try { db.exec('ALTER TABLE orders ADD COLUMN manual_shipped_at TEXT'); } catch (e) {}
+try { db.exec('ALTER TABLE orders ADD COLUMN manual_by TEXT'); } catch (e) {}
+try { db.exec('ALTER TABLE missing ADD COLUMN manual_resolved INTEGER DEFAULT 0'); } catch (e) {}
 
 const DEFAULT_SETTINGS = {
   recipients: config.DEFAULT_RECIPIENTS, // comma separated
